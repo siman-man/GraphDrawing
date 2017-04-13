@@ -1,0 +1,9 @@
+*.jar
+GraphDrawing
+/data
+*.txt
+Rakefile
+*.png
+parse.rb
+.idea
+cmake-build-debug
