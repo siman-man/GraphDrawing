@@ -48,6 +48,41 @@ Each coordinate of each vertex must be between 0 and 700, inclusive. All vertice
 各頂点の座標は [0 - 700] の間であり、同じ座標に複数の頂点が来ることはありません。
 
 
+
+### スコア
+
+For each test case we will calculate your raw score. If your solution produced an invalid return (contained invalid number of elements,
+
+placed two vertices at the same point etc.), raw score for this test case will be 0. Otherwise, raw score will be calculated as follows. 
+
+For each edge of the graph, its actual length on the drawing and the ratio "actual length / desired length" are calculated. 
+
+Then minimal and maximal ratios across all edges are selected, and the raw score for a test case is calculated as MIN_RATIO/MAX_RATIO. 
+
+
+
+### テストケースの生成
+
+To generate the desired lengths of the graph edges, we will use the following procedure:
+
+テストケースは以下の手順で生成されます。
+
+* Assign random integer coordinates from [0, 700] x [0, 700] to each vertex of the graph, so that the coordinates of all vertices are distinct.
+
+[0, 700] の範囲でランダムに座標を生成します (各頂点が重複しないように)
+
+* Calculate actual lengths of edges based on these coordinates.
+
+各頂点同士の長さを計算します。
+
+* Pick a random distortion percentage P between 0 and 99, inclusive.
+
+ねじれ係数を [0, 99] の間で選択します。
+
+* For each edge, multiply its length by 1.1^G with probability P (and keep the length unchanged with probability 1-P). G is sampled from normal distribution with mean 0.0 and standard deviation 1.0. The new lengths are capped to be between 1 and 991, inclusive.
+
+
+
 ### 注意点
 
 * The time limit is 10 seconds per test case (this includes only the time spent in your code). The memory limit is 1024 megabytes.
@@ -80,3 +115,10 @@ Each coordinate of each vertex must be between 0 and 700, inclusive. All vertice
 * The number of edges will be between NV - 1 and NV * min(10, (NV - 1) / 4), inclusive.
 
 辺の数は [NV-1, NV * (min, (NV - 1) / 4)] です。
+
+
+## 考察
+
+* 辺情報から点の座標を予測する問題。
+* 辺の長いものほど情報が多い (該当する部分が限られてくるため)
+* 長さが一致していればいいので、座標が90 * nで回転していてもOK
