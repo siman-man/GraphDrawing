@@ -53,11 +53,19 @@ Each coordinate of each vertex must be between 0 and 700, inclusive. All vertice
 
 For each test case we will calculate your raw score. If your solution produced an invalid return (contained invalid number of elements,
 
+各テストケースにおいて生のスコアを計算します。 もし不正な回答だった場合は0点になります。
+
 placed two vertices at the same point etc.), raw score for this test case will be 0. Otherwise, raw score will be calculated as follows. 
+
+それ以外の点数は以下の様にして計算されます。
 
 For each edge of the graph, its actual length on the drawing and the ratio "actual length / desired length" are calculated. 
 
+グラフ上の各辺に対して 実際の長さ / 理想的な長さ を計算します。
+
 Then minimal and maximal ratios across all edges are selected, and the raw score for a test case is calculated as MIN_RATIO/MAX_RATIO. 
+
+各辺に対して 最大の誤差 と 最小の誤差を計算し [最小の誤差 / 最大の誤差] でスコアを算出します。
 
 
 
