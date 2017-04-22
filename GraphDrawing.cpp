@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cfloat>
 #include <cmath>
+#include <queue>
 #include <string.h>
 #include <iostream>
 #include <vector>
@@ -37,88 +38,79 @@ double getTime(unsigned long long int begin_cycle) {
     return (double) (getCycle() - begin_cycle) / CYCLE_PER_SEC;
 }
 
+inline double calcDist(int y1, int x1, int y2, int x2) {
+    int dy = y1 - y2;
+    int dx = x1 - x2;
+
+    assert(sqrt(dy * dy + dx * dx) >= 1.0);
+    return sqrt(dy * dy + dx * dx);
+}
+
 typedef struct Coord {
     int y;
     int x;
 
-    Coord(int y, int x) {
+    Coord(int y = -1, int x = -1) {
         this->y = y;
         this->x = x;
     }
 } COORD;
 
-typedef struct Edge {
-    int from;
-    int to;
-    int dist;
-
-    Edge(int from = -1, int to = -1, int dist = -1) {
-        this->from = from;
-        this->to = to;
-        this->dist = dist;
-    }
-} EDGE;
-
 typedef struct Vertex {
     int y;
     int x;
-    double minDiff;
-    double maxDiff;
+    bool fixed;
     vector<int> neighbors;
 
-    Vertex(int y = -1, int x = -1, double minDiff = -1.0, double maxDiff = -1.0) {
+    Vertex(int y = -1, int x = -1) {
         this->y = y;
         this->x = x;
-        this->minDiff = minDiff;
-        this->maxDiff = maxDiff;
+        this->fixed = false;
     }
-
-    double range() {
-        assert(maxDiff - minDiff >= 0);
-        return maxDiff - minDiff;
-    }
-
 } VERTEX;
 
-struct Diff {
-    double min;
-    double max;
-    double range;
+typedef struct Node {
+    int from;
+    int to;
+    double diff;
 
-    Diff(double minDiff = -1.0, double maxDiff = -1.0, double range = -1.0) {
-        this->min = minDiff;
-        this->max = maxDiff;
-        this->range = range;
-    }
-};
-
-struct Node {
-    double totalRange;
-    double maxDiff;
-    double minDiff;
-
-    Node(double totalRange = -1.0, double maxDiff = -1.0, double minDiff = -1.0) {
-        this->totalRange = totalRange;
-        this->maxDiff = maxDiff;
-        this->minDiff = minDiff;
+    Node(int from = -1, int to = -1, double diff = -1.0) {
+        this->from = from;
+        this->to = to;
+        this->diff = diff;
     }
 
-    double value() {
-        return 0.0;
+    bool operator>(const Node &n) const {
+        return diff < n.diff;
     }
-
-    double score() {
-        return minDiff / maxDiff;
-    }
-};
+} NODE;
 
 vector <VERTEX> g_vertexList;
-vector <Edge> g_edgeList;
 bool g_field[FIELD_SIZE + 1][FIELD_SIZE + 1];
+int g_distField[MAX_V + 1][MAX_V + 1];
 int g_desireDist[MAX_V][MAX_V];
 int g_edgeCount;
 int g_vertexCount;
 
+typedef struct Edge {
+    int from;
+    int to;
+    int desire;
+    int dist;
+
+    Edge(int from = -1, int to = -1, int desire = -1) {
+        this->from = from;
+        this->to = to;
+        this->desire = desire;
+    }
+
+    double diff() {
+        return dist / (double) desire;
+    }
+
+} EDGE;
+
+vector <Edge> g_edgeList;
 
 class GraphDrawing {
 public:
@@ -152,74 +144,137 @@ public:
         fprintf(stderr, "VertexCount = %d, EdgeCount = %d\n", g_vertexCount, g_edgeCount);
     }
 
-    void initFieldData(vector<VERTEX> &vl) {
+    void initFieldData() {
         memset(g_field, false, sizeof(g_field));
+        memset(g_distField, -1, sizeof(g_distField));
 
-        for (int i = 0; i < vl.size(); i++) {
-            VERTEX *v = &vl[i];
-            Diff diff = calcVertexDiff(vl, i);
-            v->minDiff = diff.min;
-            v->maxDiff = diff.max;
+        for (int i = 0; i < g_vertexCount; i++) {
+            VERTEX *v = getVertex(i);
             g_field[v->y][v->x] = true;
+
+            int nsize = v->neighbors.size();
+            for (int j = 0; j < nsize; j++) {
+                int neighborId = v->neighbors[j];
+                VERTEX *n = getVertex(neighborId);
+                int dist = calcDist(v->y, v->x, n->y, n->x);
+
+                g_distField[i][neighborId] = dist;
+                g_distField[neighborId][i] = dist;
+            }
         }
     }
 
     vector<int> plot(int N, vector<int> edges) {
         init(N, edges);
 
-        vector <Vertex> bvl = getBestVertexList(g_vertexList);
+        vector <Vertex> bvl = getBestVertexList();
 
         vector<int> ret = createAnswer(bvl);
-        Node node = calcScore(bvl);
-        fprintf(stderr, "CurrentScore = %f\n", node.score());
+        double score = calcScore();
 
         return ret;
     }
 
-    vector <Vertex> getBestVertexList(vector <Vertex> vertexList) {
-        vector <Vertex> bestVertexList = vertexList;
-        initFieldData(bestVertexList);
-
-        double currentTime = getTime(g_startCycle);
-        Node node = calcScore(bestVertexList);
-        double bestValue = node.totalRange;
+    vector <Vertex> getBestVertexList() {
+        fprintf(stderr, "getBestVertexList =>\n");
+        initFieldData();
 
         ll tryCount = 0;
+        //queue <Node> pque;
+        priority_queue <Node, vector<Node>, greater<Node>> pque;
 
-        while (currentTime < TIME_LIMIT) {
-            int vertexId = xor128() % g_vertexCount;
-            Vertex ov = bestVertexList[vertexId];
-            COORD c = createRandomCoord();
+        for (int i = 0; i < g_edgeCount; i++) {
+            EDGE *edge = getEdge(i);
+            int dist = g_distField[edge->from][edge->to];
+            double diff = fabs(1.0 - dist / (double) g_desireDist[edge->from][edge->to]);
+            pque.push(Node(edge->from, edge->to, diff));
+        }
 
-            assert(g_field[ov.y][ov.x]);
-            g_field[ov.y][ov.x] = false;
-            assert(!g_field[c.y][c.x]);
-            g_field[c.y][c.x] = true;
+        while (!pque.empty()) {
+            //NODE node = pque.front();
+            NODE node = pque.top();
+            pque.pop();
+            int dist = g_distField[node.from][node.to];
 
-            bestVertexList[vertexId].y = c.y;
-            bestVertexList[vertexId].x = c.x;
-            Diff d = calcVertexDiff(bestVertexList, vertexId);
-            double diff = bestValue + (d.range - ov.range());
+            VERTEX *v = getVertex(node.from);
+            VERTEX *n = getVertex(node.to);
 
-            if (bestValue > diff) {
-                bestValue = diff;
-                bestVertexList[vertexId].minDiff = d.min;
-                bestVertexList[vertexId].maxDiff = d.max;
-            } else {
-                assert(!g_field[ov.y][ov.x]);
-                g_field[ov.y][ov.x] = true;
-                assert(g_field[c.y][c.x]);
-                g_field[c.y][c.x] = false;
-                bestVertexList[vertexId].y = ov.y;
-                bestVertexList[vertexId].x = ov.x;
+            if (v->fixed) continue;
+            fprintf(stderr, "%d -> %d : (%d/%d) = %f\n", node.from, node.to, dist, g_desireDist[node.from][node.to], node.diff);
+            double bestDiff = INT_MAX;
+            COORD bestCoord;
+
+            for (int i = 0; i < 1000; i++) {
+                COORD coord = createRandomCoord();
+                int dist = calcDist(coord.y, coord.x, n->y, n->x);
+                double diff = fabs(1.0 - dist / (double) g_desireDist[node.from][node.to]);
+
+                if (bestDiff > diff) {
+                    bestDiff = diff;
+                    bestCoord = coord;
+                }
             }
 
-            currentTime = getTime(g_startCycle);
+            if (bestDiff <= 0.1) {
+                v->fixed = true;
+                n->fixed = true;
+            }
             tryCount++;
+            moveVertex(node.from, bestCoord.y, bestCoord.x);
+            fprintf(stderr, "%d -> %d : (%d/%d) = %f\n", node.from, node.to, g_distField[node.from][node.to], g_desireDist[node.from][node.to], bestDiff);
+
+            int nsize = v->neighbors.size();
+            for (int i = 0; i < nsize; i++) {
+                int neighborId = v->neighbors[i];
+                int dist = g_distField[node.from][neighborId];
+                double diff = fabs(1.0 - dist / (double) g_desireDist[node.from][neighborId]);
+
+                pque.push(Node(node.from, neighborId, diff));
+            }
+
+            if (tryCount % 1 == 0) {
+                double minDiff = DBL_MAX;
+                double maxDiff = 0.0;
+                priority_queue <Node, vector<Node>, greater<Node>> tque;
+                for (int i = 0; i < g_edgeCount; i++) {
+                    EDGE *edge = getEdge(i);
+                    int dist = g_distField[edge->from][edge->to];
+                    double diff = fabs(1.0 - dist / (double) g_desireDist[edge->from][edge->to]);
+                    double sdiff = dist / (double) g_desireDist[edge->from][edge->to];
+                    tque.push(Node(edge->from, edge->to, sdiff));
+                    minDiff = min(minDiff, sdiff);
+                    maxDiff = max(maxDiff, sdiff);
+                }
+                fprintf(stderr,"(%f/%f) = score = %f\n", minDiff, maxDiff, minDiff / maxDiff);
+
+                pque = tque;
+            }
+
+            if (tryCount > 1000) {
+                break;
+            }
         }
 
         fprintf(stderr, "tryCount = %lld\n", tryCount);
-        return bestVertexList;
+        return g_vertexList;
+    }
+
+    void moveVertex(int id, int y, int x) {
+        VERTEX *v = getVertex(id);
+        g_field[v->y][v->x] = false;
+        v->y = y;
+        v->x = x;
+        g_field[y][x] = true;
+
+        int nsize = v->neighbors.size();
+        for (int i = 0; i < nsize; i++) {
+            int neighborId = v->neighbors[i];
+            VERTEX *n = getVertex(neighborId);
+            int dist = calcDist(v->y, v->x, n->y, n->x);
+
+            g_distField[id][neighborId] = dist;
+            g_distField[neighborId][id] = dist;
+        }
     }
 
     COORD createRandomCoord() {
@@ -245,46 +300,30 @@ public:
         return ret;
     }
 
-    Node calcScore(vector <Vertex> &vertexList) {
+    double calcScore() {
         double minDiff = DBL_MAX;
         double maxDiff = 0.0;
-        double totalRange = 0.0;
 
-        for (int i = 0; i < g_vertexCount; i++) {
-            Vertex *v = &vertexList[i];
-            minDiff = min(minDiff, v->minDiff);
-            maxDiff = max(maxDiff, v->maxDiff);
-            totalRange += v->range();
-        }
+        for (int i = 0; i < g_edgeCount; i++) {
+            EDGE *edge = getEdge(i);
+            int dist = g_distField[edge->from][edge->to];
+            double diff = dist / (double) g_desireDist[edge->from][edge->to];
 
-        return Node(totalRange, maxDiff, minDiff);
-    }
-
-    Diff calcVertexDiff(vector <Vertex> &vertexList, int fromId) {
-        double minDiff = DBL_MAX;
-        double maxDiff = 0.0;
-        Vertex from = vertexList[fromId];
-        int nsize = from.neighbors.size();
-
-        for (int j = 0; j < nsize; j++) {
-            int toId = from.neighbors[j];
-            Vertex to = vertexList[toId];
-            double dist = calcDist(from, to);
-            assert(g_desireDist[fromId][toId] > 0);
-            double diff = dist / (double) g_desireDist[fromId][toId];
             minDiff = min(minDiff, diff);
             maxDiff = max(maxDiff, diff);
         }
 
-        return Diff(minDiff, maxDiff, maxDiff - minDiff);
+        return minDiff / maxDiff;
     }
 
-    inline double calcDist(Vertex &v1, Vertex &v2) {
-        int dy = v1.y - v2.y;
-        int dx = v1.x - v2.x;
-
-        return sqrt(dy * dy + dx * dx);
+    EDGE *getEdge(int id) {
+        return &g_edgeList[id];
     }
+
+    VERTEX *getVertex(int id) {
+        return &g_vertexList[id];
+    }
+
 };
 
 
